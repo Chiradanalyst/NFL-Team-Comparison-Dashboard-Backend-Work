@@ -1,0 +1,178 @@
+import pandas as pd
+import nfl_data_py as nfl
+nfl_team_data = nfl.import_team_desc()
+years = [2023]
+weekly_data = nfl.import_weekly_data(years)
+schedule = nfl.import_schedules(years)
+clean_weekly= nfl.clean_nfl_data(weekly_data)
+import pandas as pd
+
+# Load datasets
+df = clean_weekly
+schedule
+
+# Specify columns to aggregate
+agg_columns = ['completions', 'attempts', 'passing_yards', 'passing_tds', 'interceptions', 
+               'sacks', 'sack_yards', 'carries', 'rushing_yards', 'rushing_tds', 'special_teams_tds']
+
+# Aggregate data from Clean_weekly.csv
+team_weekly_agg = df.groupby(['recent_team', 'week'])[agg_columns].sum().reset_index()
+
+# Specify columns to include from Schedule.csv
+additional_columns = ['home_score', 'away_score', 'gameday', 'overtime', 'away_qb_name', 
+                      'home_qb_name', 'away_coach', 'home_coach', 'stadium']
+filtered_schedule_data = schedule[['week', 'away_team', 'home_team'] + additional_columns]
+
+# Join on Away Team
+away_joined = pd.merge(team_weekly_agg, filtered_schedule_data, 
+                       left_on=['week', 'recent_team'], 
+                       right_on=['week', 'away_team'], 
+                       how='right', suffixes=('', '_away'))
+
+# Join on Home Team
+home_joined = pd.merge(team_weekly_agg, filtered_schedule_data, 
+                       left_on=['week', 'recent_team'], 
+                       right_on=['week', 'home_team'], 
+                       how='right', suffixes=('', '_home'))
+
+# Rename columns with "away_" prefix for the away_joined dataset
+for col in agg_columns:
+    if col in away_joined.columns:
+        away_joined.rename(columns={col: 'away_' + col}, inplace=True)
+
+# Rename columns with "home_" prefix for the home_joined dataset
+for col in agg_columns:
+    if col in home_joined.columns:
+        home_joined.rename(columns={col: 'home_' + col}, inplace=True)
+
+# Merge the datasets based on week, away_team, and home_team
+final_combined_data = pd.merge(home_joined, away_joined, on=['week', 'away_team', 'home_team'] + additional_columns, how='outer')
+
+# Reorder the columns
+final_columns = ['week', 'home_team', 'away_team'] + \
+                [f'home_{col}' for col in agg_columns] + \
+                [f'away_{col}' for col in agg_columns] + \
+                additional_columns
+final_combined_data = final_combined_data[final_columns]
+
+
+
+# Specify columns to merge from NFL_Team_Data.csv
+merge_columns = ['team_nick', 'team_conf', 'team_division']
+
+# Merge for Home Team
+final_combined_data = pd.merge(final_combined_data, nfl_team_data[['team_abbr'] + merge_columns], 
+                               left_on='home_team', 
+                               right_on='team_abbr', 
+                               how='left')
+for col in merge_columns:
+    final_combined_data.rename(columns={col: 'home_' + col}, inplace=True)
+
+# Merge for Away Team
+final_combined_data = pd.merge(final_combined_data, nfl_team_data[['team_abbr'] + merge_columns], 
+                               left_on='away_team', 
+                               right_on='team_abbr', 
+                               how='left')
+for col in merge_columns:
+    final_combined_data.rename(columns={col: 'away_' + col}, inplace=True)
+
+# Drop the redundant 'team_abbr' columns after merging
+final_combined_data.drop(columns=['team_abbr_x', 'team_abbr_y'], inplace=True)
+
+
+
+final_combined_data.head()
+
+final_combined_data.to_csv('final_combined_data.csv', index=False)
+
+
+
+import numpy as np
+
+# Load the data
+nfl_data_original = final_combined_data
+
+# Function to extract team-specific data
+def extract_team_data(team):
+    # Home data
+    home_data = nfl_data_original[nfl_data_original['home_team_nick'] == team]
+    home_df = pd.DataFrame({
+        'Game Date': home_data['gameday'],
+        'Team': team,
+        'Opponent': home_data['away_team_nick'],
+        'Points Scored': home_data['home_score'],
+        'Points Against': home_data['away_score'],
+        'Passing TDs Scored': home_data['home_passing_tds'],
+        'Rushing TDs Scored': home_data['home_rushing_tds'],
+        'Passing TDs Against': home_data['away_passing_tds'],
+        'Rushing TDs Against': home_data['away_rushing_tds'],
+       
+        'Rushing Yards': home_data['home_rushing_yards'],
+        'Passing Yards': home_data['home_passing_yards'],
+      
+        'Defensive Rushing Yards Against': home_data['away_rushing_yards'],
+        'Defensive Passing Yards Against': home_data['away_passing_yards'],
+        'Offensive Sacks': home_data['home_sacks'],
+        'Defensive Sacks Against': home_data['away_sacks'],
+        'Interceptions Thrown': home_data['home_interceptions'],
+        'Interceptions Caught': home_data['away_interceptions'],
+
+        'Team Coach': home_data['home_coach'],
+        'Opponent Coach': home_data['away_coach'],
+        'Team QB': home_data['home_qb_name'],
+        'Opponent QB': home_data['away_qb_name'],
+        'Team Conference': home_data['home_team_conf'],
+        'Opponent Conference': home_data['away_team_conf'],
+        'Team Division': home_data['home_team_division'],
+        'Opponent Division': home_data['away_team_division'],
+    })
+
+    # Away data
+    away_data = nfl_data_original[nfl_data_original['away_team_nick'] == team]
+    away_df = pd.DataFrame({
+        'Game Date': away_data['gameday'],
+        'Team': team,
+        'Opponent': away_data['home_team_nick'],
+        'Points Scored': away_data['away_score'],
+        'Points Against': away_data['home_score'],
+        'Passing TDs Scored': away_data['away_passing_tds'],
+        'Rushing TDs Scored': away_data['away_rushing_tds'],
+        'Passing TDs Against': away_data['home_passing_tds'],
+        'Rushing TDs Against': away_data['home_rushing_tds'],
+   
+        'Rushing Yards': away_data['away_rushing_yards'],
+        'Passing Yards': away_data['away_passing_yards'],
+ 
+        'Defensive Rushing Yards Against': away_data['home_rushing_yards'],
+        'Defensive Passing Yards Against': away_data['home_passing_yards'],
+        'Offensive Sacks': away_data['away_sacks'],
+        'Defensive Sacks Against': away_data['home_sacks'],
+        'Interceptions Thrown': away_data['away_interceptions'],
+        'Interceptions Caught': away_data['home_interceptions'],
+
+        'Team Coach': away_data['away_coach'],
+        'Opponent Coach': away_data['home_coach'],
+        'Team QB': away_data['away_qb_name'],
+        'Opponent QB': away_data['home_qb_name'],
+        'Team Conference': away_data['away_team_conf'],
+        'Opponent Conference': away_data['home_team_conf'],
+        'Team Division': away_data['away_team_division'],
+        'Opponent Division': away_data['home_team_division'],
+    })
+
+    # Combine home and away data
+    return pd.concat([home_df, away_df], axis=0).reset_index(drop=True)
+
+# Compile data for all teams
+teams = nfl_data_original['home_team_nick'].unique()
+compiled_data_list = [extract_team_data(team) for team in teams]
+compiled_df = pd.concat(compiled_data_list, axis=0).reset_index(drop=True)
+
+# Map abbreviated team names to full team names
+team_nickname_mapping = {row['home_team_nick']: row['home_team'] for _, row in nfl_data_original.iterrows()}
+team_nickname_mapping.update({row['away_team_nick']: row['away_team'] for _, row in nfl_data_original.iterrows()})
+compiled_df['Team Name'] = compiled_df['Team'].map(team_nickname_mapping)
+compiled_df['Opponent Team Name'] = compiled_df['Opponent'].map(team_nickname_mapping)
+
+# Save the compiled data to a CSV file
+compiled_df.to_csv("agg_nfl_data.csv", index=False)
